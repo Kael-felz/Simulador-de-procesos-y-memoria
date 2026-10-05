@@ -16,27 +16,14 @@ export class GestorMemoria implements GestionarMemoria {
 
   public asignar(pid: number, tamano: number): boolean {
     validarEnteroPositivo(tamano, "El tamaño a asignar");
-    if (this.buscarIndice(pid) !== null) {
-      throw new Error(`El proceso ${pid} ya tiene memoria asignada.`);
-    }
+    this.buscarIndice(pid) === null || this.errorYaAsignado(pid);
     const indice = this.politica.seleccionar(this.getBloques(), tamano);
-    if (indice === null) {
-      return false;
-    }
-    const bloque = this.bloques[indice];
-    const nuevos = [new BloqueMemoria(bloque.getInicio(), tamano, pid)];
-    if (bloque.getTamano() > tamano) {
-      nuevos.push(new BloqueMemoria(bloque.getInicio() + tamano, bloque.getTamano() - tamano));
-    }
-    this.bloques.splice(indice, 1, ...nuevos);
-    return true;
+    indice !== null && this.ocupar(indice, pid, tamano);
+    return indice !== null;
   }
 
   public liberar(pid: number): void {
-    const indice = this.buscarIndice(pid);
-    if (indice === null) {
-      throw new Error(`El proceso ${pid} no tiene memoria asignada.`);
-    }
+    const indice = this.buscarIndice(pid) ?? this.errorSinMemoria(pid);
     const bloque = this.bloques[indice];
     this.bloques[indice] = new BloqueMemoria(bloque.getInicio(), bloque.getTamano());
     this.coalescer(indice);
@@ -58,6 +45,15 @@ export class GestorMemoria implements GestionarMemoria {
     return Math.max(0, ...this.bloquesLibres().map((b) => b.getTamano()));
   }
 
+  private ocupar(indice: number, pid: number, tamano: number): void {
+    const bloque = this.bloques[indice];
+    const sobrante = bloque.getTamano() - tamano;
+    const ocupado = new BloqueMemoria(bloque.getInicio(), tamano, pid);
+    const libre = new BloqueMemoria(bloque.getInicio() + tamano, sobrante);
+    // Si el ajuste es exacto no se crea un bloque libre de tamaño 0.
+    this.bloques.splice(indice, 1, ...(sobrante > 0 ? [ocupado, libre] : [ocupado]));
+  }
+
   private bloquesLibres(): BloqueMemoria[] {
     return this.bloques.filter((b) => b.estaLibre());
   }
@@ -67,15 +63,15 @@ export class GestorMemoria implements GestionarMemoria {
     return indice === -1 ? null : indice;
   }
 
+  // Une el bloque liberado con sus vecinos libres: primero el derecho y después el izquierdo.
   private coalescer(indice: number): void {
-    const derecho = this.bloques[indice + 1];
-    if (derecho !== undefined && derecho.estaLibre()) {
-      this.fusionar(indice);
-    }
-    const izquierdo = this.bloques[indice - 1];
-    if (izquierdo !== undefined && izquierdo.estaLibre()) {
-      this.fusionar(indice - 1);
-    }
+    this.estaLibre(indice + 1) && this.fusionar(indice);
+    this.estaLibre(indice - 1) && this.fusionar(indice - 1);
+  }
+
+  private estaLibre(indice: number): boolean {
+    const bloque = this.bloques[indice];
+    return bloque !== undefined && bloque.estaLibre();
   }
 
   private fusionar(indice: number): void {
@@ -83,5 +79,13 @@ export class GestorMemoria implements GestionarMemoria {
     const segundo = this.bloques[indice + 1];
     const unido = new BloqueMemoria(primero.getInicio(), primero.getTamano() + segundo.getTamano());
     this.bloques.splice(indice, 2, unido);
+  }
+
+  private errorYaAsignado(pid: number): never {
+    throw new Error(`El proceso ${pid} ya tiene memoria asignada.`);
+  }
+
+  private errorSinMemoria(pid: number): never {
+    throw new Error(`El proceso ${pid} no tiene memoria asignada.`);
   }
 }
